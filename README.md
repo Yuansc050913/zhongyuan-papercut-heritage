@@ -1,16 +1,41 @@
-# React + Vite
+# 剪韵中原 | Zhongyuan Paper Art
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+“剪韵中原”是一个面向河南剪纸非遗活化与乡村振兴场景的 React + Vite 交互展示项目。项目以河南中原文化为核心，围绕银发传承人、青年设计师、AR 教学、文创市集和乡村工坊定制订单构建完整体验。
 
-Currently, two official plugins are available:
+## 核心模块
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- 首页：展示项目定位、纪录片入口、AR 教学入口和四个核心板块。
+- 银青结对：展示传承人与青年设计师的结对共创故事，支持轮播切换。
+- AR 传习馆：提供剪纸教学实操入口、进阶课程、步骤反馈和问答辅助。
+- 文创市集：展示河南剪纸衍生文创商品，包含商品详情和购物车交互。
+- 定制工坊：连接郑州设计需求与河南乡村工坊，提供工坊 GIS 分布、套餐匹配和定制需求表单。
 
-## React Compiler
+## 2.0.0 更新重点
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 项目标识迁移为 `zhongyuan-papercut-heritage`。
+- 品牌名称更新为“剪韵中原”，英文标识更新为 `ZHONGYUAN PAPER ART`。
+- 主题地域聚焦河南中原，核心描述更新为“连接中原大地”。
+- 核心纹样更新为“拉手娃娃”，并补充“富贵牡丹”“河洛文创”等河南语境内容。
+- 工坊网络更新为洛阳孟津、三门峡陕州、灵宝函谷关等河南乡村工坊。
+- 联系信息、邮箱域名和页脚说明更新为河南剪纸项目设定。
 
-## Expanding the ESLint configuration
+## 本地运行
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+npm install
+npm run dev
+```
+
+默认开发地址：
+
+```text
+http://localhost:5173/zhongyuan-papercut-heritage/
+```
+
+## 构建
+
+```bash
+npm run build
+```
+
+构建产物输出到 `docs/`，用于 GitHub Pages 部署。

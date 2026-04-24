@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Play, User, Scissors, ShoppingBag, Smartphone, Menu, X,
   ArrowRight, Heart, Camera, ChevronRight, Star, Gift,
@@ -12,8 +12,123 @@ import {
 // 图片改为本地引入 (132kB 体积小，本地引入更稳定，避免 CDN 挂掉导致背景全白)
 // 图片改为本地引入 (132kB 体积小，本地引入更稳定，避免 CDN 挂掉导致背景全白)
 import homeBg from './assets/home_bg.webp';
+import papercutPanelImg from './assets/pictures/optimized/2.jpg';
+import bookmarkImg from './assets/pictures/optimized/书签6.jpg';
+import toteBagImg from './assets/pictures/optimized/帆布包1.jpg';
+import postcardImg from './assets/pictures/optimized/明信片4.jpg';
+import mugImg from './assets/pictures/optimized/杯子2.jpg';
+import tableMatImg from './assets/pictures/optimized/桌垫3.jpg';
+import bowlImg from './assets/pictures/optimized/碗5.jpg';
 // 视频封面图 (默认使用首页背景，如需更换请上传新图并修改此处引用)
 const videoCover = homeBg;
+
+const redLanternGiftImg = "https://images.pexels.com/photos/20767138/pexels-photo-20767138.png?auto=compress&cs=tinysrgb&w=500";
+const redLanternGiftSource = "https://www.pexels.com/photo/close-up-of-red-paper-lanterns-with-chinese-writing-20767138/";
+const redPaperDiyImg = "https://images.pexels.com/photos/20541861/pexels-photo-20541861.jpeg?auto=compress&cs=tinysrgb&w=500";
+const redPaperDiySource = "https://www.pexels.com/photo/hands-of-a-person-making-red-paper-decorations-20541861/";
+
+const formatPrice = (price) => Number.isInteger(price) ? String(price) : price.toFixed(1);
+const getOriginalPrice = (price) => Math.ceil(price * 1.25);
+
+const HENAN_GEOJSON_URL = 'https://geo.datav.aliyun.com/areas_v3/bound/410000_full.json';
+const HENAN_MAP_FALLBACK_BOUNDS = { minLng: 110.35, maxLng: 116.7, minLat: 31.35, maxLat: 36.45 };
+const MAP_WIDTH = 1000;
+const MAP_HEIGHT = 560;
+
+const cityFillPalette = ['#e7f0dd', '#f4ead4', '#eaf2df', '#f1e3c8', '#e0eddc', '#f6efd9', '#e8f1e3', '#f0e7d3'];
+
+const henanCityLabels = [
+  { name: '郑州', lng: 113.62, lat: 34.75, major: true },
+  { name: '洛阳', lng: 112.45, lat: 34.62, major: true },
+  { name: '三门峡', lng: 111.2, lat: 34.78, major: true },
+  { name: '开封', lng: 114.31, lat: 34.8, major: true },
+  { name: '商丘', lng: 115.65, lat: 34.45, major: true },
+  { name: '许昌', lng: 113.85, lat: 34.02 },
+  { name: '新乡', lng: 113.92, lat: 35.3 },
+  { name: '安阳', lng: 114.35, lat: 36.1 },
+  { name: '南阳', lng: 112.52, lat: 33.0 },
+  { name: '信阳', lng: 114.08, lat: 32.13 },
+  { name: '周口', lng: 114.65, lat: 33.62 },
+  { name: '驻马店', lng: 114.02, lat: 32.98 },
+  { name: '焦作', lng: 113.24, lat: 35.22 },
+  { name: '平顶山', lng: 113.3, lat: 33.74 }
+];
+
+const henanRiverLines = [
+  {
+    name: '黄河',
+    width: 9,
+    coords: [[110.55, 34.72], [111.25, 34.74], [112.05, 34.68], [112.85, 34.82], [113.55, 34.95], [114.25, 34.87], [115.05, 35.03], [116.25, 35.42]]
+  },
+  {
+    name: '淮河',
+    width: 4,
+    coords: [[112.95, 32.32], [113.65, 32.28], [114.35, 32.23], [115.15, 32.05]]
+  }
+];
+
+const henanLogisticsRoutes = [
+  [[111.1, 34.72], [112.45, 34.62], [113.62, 34.75], [114.31, 34.8], [115.65, 34.45]],
+  [[112.45, 34.62], [113.3, 33.74], [114.02, 33.58], [114.65, 33.62]],
+  [[113.62, 34.75], [113.85, 34.02], [114.02, 32.98], [114.08, 32.13]]
+];
+
+const collectCoordinatePairs = (value, acc = []) => {
+  if (!Array.isArray(value)) return acc;
+  if (typeof value[0] === 'number' && typeof value[1] === 'number') {
+    acc.push(value);
+    return acc;
+  }
+  value.forEach((item) => collectCoordinatePairs(item, acc));
+  return acc;
+};
+
+const getGeoJsonBounds = (geoJson) => {
+  const pairs = collectCoordinatePairs(geoJson?.features?.map((feature) => feature.geometry?.coordinates) || []);
+  if (!pairs.length) return null;
+
+  return pairs.reduce((bounds, [lng, lat]) => ({
+    minLng: Math.min(bounds.minLng, lng),
+    maxLng: Math.max(bounds.maxLng, lng),
+    minLat: Math.min(bounds.minLat, lat),
+    maxLat: Math.max(bounds.maxLat, lat)
+  }), { minLng: Infinity, maxLng: -Infinity, minLat: Infinity, maxLat: -Infinity });
+};
+
+const createMapProjector = (bounds) => {
+  const paddingX = 68;
+  const paddingY = 42;
+  const lngSpan = bounds.maxLng - bounds.minLng;
+  const latSpan = bounds.maxLat - bounds.minLat;
+  const scale = Math.min((MAP_WIDTH - paddingX * 2) / lngSpan, (MAP_HEIGHT - paddingY * 2) / latSpan);
+  const mapWidth = lngSpan * scale;
+  const mapHeight = latSpan * scale;
+  const offsetX = (MAP_WIDTH - mapWidth) / 2;
+  const offsetY = (MAP_HEIGHT - mapHeight) / 2;
+
+  return (lng, lat) => ({
+    x: offsetX + (lng - bounds.minLng) * scale,
+    y: offsetY + (bounds.maxLat - lat) * scale
+  });
+};
+
+const ringToPath = (ring, project) => {
+  const points = ring.map(([lng, lat]) => project(lng, lat));
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ') + ' Z';
+};
+
+const geometryToPaths = (geometry, project) => {
+  if (!geometry?.coordinates) return [];
+  const polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+  return polygons.flatMap((polygon) => polygon.map((ring) => ringToPath(ring, project)));
+};
+
+const lineToPath = (coords, project) => coords
+  .map(([lng, lat], index) => {
+    const point = project(lng, lat);
+    return `${index === 0 ? 'M' : 'L'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`;
+  })
+  .join(' ');
 
 // --- 模拟数据 ---
 
@@ -84,9 +199,9 @@ const profilePairs = [
       name: "刘大爷",
       age: 75,
       title: "市级非遗传承人",
-      role: "海派剪纸 / 民俗风情",
-      desc: "擅长捕捉生活中的细腻瞬间，将上海弄堂里的烟火气剪进纸里，风格细腻写实。",
-      tags: ["海派风格", "老匠人"],
+      role: "河洛剪纸 / 民俗风情",
+      desc: "擅长捕捉黄河之滨的市井与乡土瞬间，将中原大地的烟火气剪进纸里，风格细腻写实。",
+      tags: ["河洛风格", "老匠人"],
       timeline: [
         { year: "1960", event: "自幼酷爱剪纸艺术" },
         { year: "1990", event: "多次参加国内外展览" },
@@ -120,88 +235,152 @@ const faqData = [
 
 // 文创市集产品
 const allProducts = [
+  // 本地图片来源：src/assets/pictures/2.png；展示图 optimized/2.jpg 为 900x900，页面按 300~500px 宽等比适配。
   {
     id: 1,
     category: "现代家居",
-    name: "“富贵牡丹”剪纸镂空台灯",
-    price: 159,
+    name: "牡丹花窗·剪纸装饰画",
+    price: 128,
     sales: 1200,
-    image: "lamp",
+    imageUrl: papercutPanelImg,
+    imageAlt: "红色牡丹与梅枝剪纸装饰画",
     tag: "热销",
-    desc: "将传统《富贵牡丹》纹样进行矢量化提取，结合现代金属镂空工艺。灯光透过剪纸纹样投射出斑驳光影，寓意生活富足。",
+    desc: "以牡丹、梅枝与蝶影构成大幅花窗纹样，适合玄关、客厅或展陈空间陈列，寓意富贵迎春。",
     workshop: "陕州回廓村工坊",
     workers: 12,
-    material: "黄铜、胡桃木",
+    material: "宣纸、艺术框",
     designer: "林晓"
   },
+  // 本地图片来源：src/assets/pictures/书签6.png；展示图 optimized/书签6.jpg 为 900x555，页面按 300~500px 宽等比适配。
   {
     id: 2,
-    category: "节日礼品",
-    name: "2026 蛇年大吉·定制伴手礼盒",
-    price: 299,
+    category: "生活周边",
+    name: "河洛故事·剪纸书签",
+    price: 19.9,
     sales: 850,
-    image: "giftbox",
+    imageUrl: bookmarkImg,
+    imageAlt: "红色民俗剪纸书签",
     tag: "新品",
-    desc: "专为2026乙巳蛇年设计。内含纯手工剪纸窗花、剪纸纹样丝巾及红包套装。支持企业Logo烫金定制。",
+    desc: "把传统戏台、人物与花草纹样压缩进长条书签，适合作为研学纪念和书房小礼。",
     workshop: "灵宝函谷关工坊",
     workers: 8,
-    material: "宣纸、真丝",
+    material: "特种纸、覆膜",
     designer: "陈一鸣"
   },
+  // 本地图片来源：src/assets/pictures/帆布包1.png；展示图 optimized/帆布包1.jpg 为 900x644，页面按 300~500px 宽等比适配。
   {
     id: 3,
     category: "生活周边",
-    name: "中原民俗纹样·棉麻抱枕",
-    price: 89,
+    name: "仕女踏春·国潮帆布包",
+    price: 79,
     sales: 2100,
-    image: "pillow",
-    tag: "",
-    desc: "选取经典的“老鼠娶亲”与“百鸟朝凤”场景，通过数码印花技术还原于亲肤棉麻面料之上，让非遗更有温度。",
+    imageUrl: toteBagImg,
+    imageAlt: "黑白双色国潮剪纸帆布包",
+    tag: "热销",
+    desc: "以仕女与花枝剪影做大面积印花，黑白双色可选，兼顾通勤收纳与国潮识别度。",
     workshop: "孟津朱仙镇工坊",
     workers: 15,
-    material: "天然棉麻",
+    material: "加厚棉帆布",
     designer: "王艺"
   },
+  // 本地图片来源：src/assets/pictures/明信片4.png；展示图 optimized/明信片4.jpg 为 900x531，页面按 300~500px 宽等比适配。
   {
     id: 4,
-    category: "时尚配饰",
-    name: "拉手娃娃·纯银珐琅吊坠",
-    price: 368,
-    sales: 450,
-    image: "pendant",
-    tag: "设计师款",
-    desc: "提取拉手娃娃的核心轮廓，采用古法珐琅填色。既是护身符，也是国潮时尚单品。",
+    category: "节日礼品",
+    name: "百鸟朝凤·剪纸明信片套装",
+    price: 29.9,
+    sales: 1800,
+    imageUrl: postcardImg,
+    imageAlt: "百鸟朝凤剪纸明信片",
+    tag: "新品",
+    desc: "以凤凰、牡丹与回纹边框组合成祝福画面，套装含寄语卡与收藏封套，适合节庆寄送。",
     workshop: "郑州设计研发中心",
-    workers: 5,
-    material: "925银、珐琅",
+    workers: 9,
+    material: "艺术卡纸",
     designer: "林晓"
   },
+  // 本地图片来源：src/assets/pictures/杯子2.png；展示图 optimized/杯子2.jpg 为 900x582，页面按 300~500px 宽等比适配。
   {
     id: 5,
-    category: "现代家居",
-    name: "团花纹样·艺术挂毯",
-    price: 129,
-    sales: 300,
-    image: "carpet",
-    tag: "",
-    desc: "大幅团花剪纸的织造化呈现，适合新中式装修风格。",
+    category: "生活周边",
+    name: "牡丹花枝·陶瓷马克杯",
+    price: 49.9,
+    sales: 1460,
+    imageUrl: mugImg,
+    imageAlt: "印有红色牡丹剪纸纹样的陶瓷马克杯",
+    tag: "爆款",
+    desc: "将牡丹花枝剪纸转印到白瓷杯身，适合办公室、茶水间和非遗展会伴手礼。",
     workshop: "陕州回廓村工坊",
-    workers: 12,
-    material: "棉线混纺",
+    workers: 10,
+    material: "高温白瓷",
     designer: "Team A"
   },
+  // 本地图片来源：src/assets/pictures/桌垫3.png；展示图 optimized/桌垫3.jpg 为 900x900，页面按 300~500px 宽等比适配。
   {
     id: 6,
+    category: "现代家居",
+    name: "团花镂空·节庆桌垫",
+    price: 59.9,
+    sales: 760,
+    imageUrl: tableMatImg,
+    imageAlt: "红色团花镂空剪纸桌垫",
+    tag: "设计师款",
+    desc: "把团花剪纸的层次做成立体镂空桌垫，适合新中式餐桌、茶席和节庆布置。",
+    workshop: "陕州回廓村工坊",
+    workers: 12,
+    material: "环保皮革、棉麻垫层",
+    designer: "Team A"
+  },
+  // 本地图片来源：src/assets/pictures/碗5.png；展示图 optimized/碗5.jpg 为 900x600，页面按 300~500px 宽等比适配。
+  {
+    id: 7,
+    category: "现代家居",
+    name: "金羽团花·陶瓷饭碗",
+    price: 69,
+    sales: 430,
+    imageUrl: bowlImg,
+    imageAlt: "印有金色团花剪纸纹样的白瓷碗",
+    tag: "设计师款",
+    desc: "用金色团花与飞鸟纹样装饰白瓷碗面，适合家庭餐具、节日礼盒和文创陈列。",
+    workshop: "禹州陶瓷协作工坊",
+    workers: 11,
+    material: "釉下彩陶瓷",
+    designer: "陈一鸣"
+  },
+  // 网络图片来源：Pexels / Close-up of red paper lanterns with Chinese writing；直链压缩为 500px 宽，页面按 300~500px 宽等比适配。
+  {
+    id: 8,
     category: "节日礼品",
-    name: "DIY剪纸体验包(入门级)",
-    price: 39,
-    sales: 5000,
-    image: "diy-kit",
-    tag: "爆款",
-    desc: "内含刻刀、红纸、底样和教学视频二维码，适合亲子互动。",
+    name: "福字窗花·新春礼赠套装",
+    price: 88,
+    sales: 980,
+    imageUrl: redLanternGiftImg,
+    sourceUrl: redLanternGiftSource,
+    sourceNote: "网络来源：Pexels 免费图片 Close-up of red paper lanterns with Chinese writing；直链宽度 500px。",
+    imageAlt: "红色福字纸灯笼与新年挂饰",
+    tag: "新品",
+    desc: "选用福字窗花、门笺和红包封组成节庆礼盒，可用于企业年礼、社区活动和新春布置。",
     workshop: "统一配送中心",
     workers: 20,
-    material: "纸类",
+    material: "红宣纸、礼盒",
+    designer: "教研组"
+  },
+  // 网络图片来源：Pexels / Hands of a person making red paper decorations；直链压缩为 500px 宽，页面按 300~500px 宽等比适配。
+  {
+    id: 9,
+    category: "节日礼品",
+    name: "DIY剪纸体验包(入门级)",
+    price: 29.9,
+    sales: 5000,
+    imageUrl: redPaperDiyImg,
+    sourceUrl: redPaperDiySource,
+    sourceNote: "网络来源：Pexels 免费图片 Hands of a person making red paper decorations；直链宽度 500px。",
+    imageAlt: "手工红纸装饰制作过程",
+    tag: "爆款",
+    desc: "内含刻刀、红纸、底样和教学视频二维码，适合亲子互动与非遗课堂入门体验。",
+    workshop: "统一配送中心",
+    workers: 20,
+    material: "红纸、刻刀、底样",
     designer: "教研组"
   }
 ];
@@ -279,9 +458,15 @@ const ProductModal = ({ product, onClose, onAddToCart }) => {
           <X size={24} />
         </button>
 
-        {/* Image Section */}
-        <div className="w-full md:w-1/2 bg-gray-100 relative group">
-          <img src={`/api/placeholder/600/600?text=${product.image}`} alt={product.name} className="w-full h-full object-cover" />
+        {/* Image Section: 商品图片均在数据源中标注本地文件名或网络授权来源，详情页按 300~500px 宽等比展示。 */}
+        <div className="w-full md:w-1/2 bg-gray-100 relative group flex items-center justify-center p-4 min-h-[320px]">
+          <img
+            src={product.imageUrl}
+            alt={product.imageAlt || product.name}
+            data-source-url={product.sourceUrl || product.imageUrl}
+            title={product.sourceNote || product.name}
+            className="w-full max-w-[500px] h-auto max-h-[70vh] object-contain"
+          />
           {/* 溯源标签 */}
           <div className="absolute bottom-4 left-4 bg-white/95 backdrop-blur px-4 py-2 rounded-xl shadow-lg border border-gray-100">
             <div className="flex items-center gap-2 mb-1">
@@ -304,8 +489,8 @@ const ProductModal = ({ product, onClose, onAddToCart }) => {
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">{product.name}</h2>
             <div className="flex items-baseline gap-2 mb-6">
-              <span className="text-3xl font-bold text-red-700">¥{product.price}</span>
-              <span className="text-sm text-gray-400 line-through">¥{Math.floor(product.price * 1.2)}</span>
+              <span className="text-3xl font-bold text-red-700">¥{formatPrice(product.price)}</span>
+              <span className="text-sm text-gray-400 line-through">¥{formatPrice(getOriginalPrice(product.price))}</span>
               <span className="text-sm text-gray-500 ml-auto">{product.sales}人已付款</span>
             </div>
 
@@ -604,6 +789,7 @@ const HomePage = ({ setActivePage, setShowVideo, setShowGame }) => {
 const MallPage = ({ addToCart }) => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [activeCategory, setActiveCategory] = useState('全部');
+  const productCategories = ['全部', ...new Set(allProducts.map((product) => product.category))];
 
   // 筛选逻辑
   const filteredProducts = activeCategory === '全部'
@@ -635,7 +821,7 @@ const MallPage = ({ addToCart }) => {
           <div className="flex items-center text-gray-500 text-sm mr-2">
             <Filter size={16} className="mr-1" /> 筛选:
           </div>
-          {['全部', '现代家居', '节日礼品', '生活周边', '时尚配饰'].map((cat, idx) => (
+          {productCategories.map((cat, idx) => (
             <button
               key={idx}
               onClick={() => setActiveCategory(cat)}
@@ -649,7 +835,7 @@ const MallPage = ({ addToCart }) => {
           ))}
         </div>
 
-        {/* Product Grid */}
+        {/* Product Grid: 每张商品图使用数据源中的本地文件或 CC 授权网络图，卡片内按 300~500px 宽等比缩放。 */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filteredProducts.map((product) => (
             <div
@@ -657,8 +843,16 @@ const MallPage = ({ addToCart }) => {
               className="bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all group border border-gray-100 cursor-pointer active:scale-[0.98]"
               onClick={() => setSelectedProduct(product)}
             >
-              <div className="relative h-48 sm:h-64 bg-gray-100 overflow-hidden">
-                <img src={`/api/placeholder/400/400?text=${product.image}`} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+              <div className="relative h-48 sm:h-64 bg-gray-100 overflow-hidden flex items-center justify-center p-2">
+                <img
+                  src={product.imageUrl}
+                  alt={product.imageAlt || product.name}
+                  data-source-url={product.sourceUrl || product.imageUrl}
+                  title={product.sourceNote || product.name}
+                  loading="lazy"
+                  decoding="async"
+                  className="w-full max-w-[500px] h-auto max-h-full object-contain group-hover:scale-105 transition-transform duration-500"
+                />
                 {product.tag && (
                   <span className="absolute top-3 left-3 bg-red-600 text-white text-xs px-2 py-1 rounded font-bold shadow-sm">
                     {product.tag}
@@ -673,7 +867,7 @@ const MallPage = ({ addToCart }) => {
                 <h3 className="font-bold text-gray-900 mb-2 line-clamp-2 min-h-[3rem] hover:text-red-700 transition-colors">{product.name}</h3>
                 <div className="flex justify-between items-center mt-3">
                   <div>
-                    <span className="text-red-700 font-bold text-lg">¥{product.price}</span>
+                    <span className="text-red-700 font-bold text-lg">¥{formatPrice(product.price)}</span>
                     <span className="text-xs text-gray-400 ml-2">已售{product.sales}+</span>
                   </div>
                   <button
@@ -703,6 +897,128 @@ const MallPage = ({ addToCart }) => {
 
 const CustomPage = () => {
   const [submitted, setSubmitted] = useState(false);
+  const [selectedWorkshopId, setSelectedWorkshopId] = useState('shanzhou');
+  const [selectedUseCase, setSelectedUseCase] = useState('企业礼品');
+  const [selectedPackage, setSelectedPackage] = useState('standard');
+  const [henanGeoJson, setHenanGeoJson] = useState(null);
+
+  const workshops = [
+    {
+      id: 'mengjin',
+      name: '洛阳·孟津工坊',
+      shortName: '孟津',
+      status: '待接单',
+      statusTone: 'yellow',
+      top: '27%',
+      left: '27%',
+      lng: 112.445,
+      lat: 34.825,
+      master: '张秀兰',
+      specialty: '细纹窗花 / 喜庆团花',
+      artisans: 15,
+      capacity: 42,
+      leadTime: '5-8天',
+      bestFor: '婚礼喜品、节庆窗花',
+      monthlyIncome: '¥18,200'
+    },
+    {
+      id: 'shanzhou',
+      name: '三门峡·陕州工坊',
+      shortName: '陕州',
+      status: '生产中',
+      statusTone: 'red',
+      top: '55%',
+      left: '43%',
+      lng: 111.104,
+      lat: 34.72,
+      master: '王秀英',
+      specialty: '拉手娃娃 / 大型场景',
+      artisans: 18,
+      capacity: 80,
+      leadTime: '7-12天',
+      bestFor: '企业伴手礼、展陈装置',
+      monthlyIncome: '¥42,600'
+    },
+    {
+      id: 'lingbao',
+      name: '灵宝·函谷关工坊',
+      shortName: '灵宝',
+      status: '生产中',
+      statusTone: 'green',
+      top: '45%',
+      left: '74%',
+      lng: 110.894,
+      lat: 34.516,
+      master: '孟照国',
+      specialty: '团花纹样 / 祈福礼盒',
+      artisans: 8,
+      capacity: 63,
+      leadTime: '4-7天',
+      bestFor: '文旅纪念、祈福礼品',
+      monthlyIncome: '¥25,800'
+    },
+    {
+      id: 'zhuxian',
+      name: '开封·朱仙镇工坊',
+      shortName: '朱仙镇',
+      status: '可接急单',
+      statusTone: 'green',
+      top: '34%',
+      left: '58%',
+      lng: 114.348,
+      lat: 34.463,
+      master: '陈一鸣',
+      specialty: '年画剪纸 / 国潮包装',
+      artisans: 22,
+      capacity: 35,
+      leadTime: '3-5天',
+      bestFor: '品牌包装、快闪活动',
+      monthlyIncome: '¥31,400'
+    }
+  ];
+
+  const useCases = [
+    { title: '企业礼品', desc: '年会、客户答谢、员工福利' },
+    { title: '文旅景区', desc: '地标纹样、门票周边、研学套装' },
+    { title: '婚礼喜庆', desc: '喜字、龙凤、姓名定制' },
+    { title: '校园活动', desc: '社团活动、毕业纪念、非遗课程' }
+  ];
+
+  const servicePackages = [
+    { id: 'standard', name: '标准定制', price: '¥39起/件', cycle: '3-7天', desc: '适合小批量礼品和基础纹样套用' },
+    { id: 'coCreate', name: '共创设计', price: '¥129起/件', cycle: '7-15天', desc: '设计师重绘纹样，传承人审核工艺' },
+    { id: 'exhibition', name: '展陈项目', price: '按项目报价', cycle: '15天起', desc: '适合展馆、品牌快闪和大型装置' }
+  ];
+
+  const selectedWorkshop = workshops.find((item) => item.id === selectedWorkshopId) || workshops[0];
+  const selectedService = servicePackages.find((item) => item.id === selectedPackage) || servicePackages[0];
+  const mapBounds = useMemo(() => getGeoJsonBounds(henanGeoJson) || HENAN_MAP_FALLBACK_BOUNDS, [henanGeoJson]);
+  const mapProject = useMemo(() => createMapProjector(mapBounds), [mapBounds]);
+  const cityMapPaths = useMemo(() => (henanGeoJson?.features || []).map((feature, index) => ({
+    id: feature.properties?.adcode || index,
+    name: feature.properties?.name || '',
+    paths: geometryToPaths(feature.geometry, mapProject)
+  })), [henanGeoJson, mapProject]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(HENAN_GEOJSON_URL)
+      .then((response) => {
+        if (!response.ok) throw new Error('Failed to load Henan GeoJSON');
+        return response.json();
+      })
+      .then((data) => {
+        if (!cancelled) setHenanGeoJson(data);
+      })
+      .catch(() => {
+        if (!cancelled) setHenanGeoJson(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -711,28 +1027,66 @@ const CustomPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white animate-fade-in">
-      {/* Custom Hero */}
-      <div className="relative h-80 bg-gray-900 overflow-hidden">
-        <div className="absolute inset-0 bg-black/50 z-10"></div>
-        <img src="/api/placeholder/1920/600" alt="Workshop" className="absolute inset-0 w-full h-full object-cover opacity-60" />
-        <div className="relative z-20 h-full flex flex-col justify-center items-center text-center px-4 text-white">
-          <h2 className="text-4xl md:text-5xl font-bold mb-4" style={{ fontFamily: '"Noto Serif SC", serif' }}>设计订单下乡</h2>
-          <p className="text-lg text-gray-200 max-w-2xl">
-            您的每一个定制需求，都将转化为河南乡村工坊的实实在在的订单。<br />
-            支持 B2B 企业礼品定制 / C2C 个人专属定制。
-          </p>
+    <div className="min-h-screen bg-stone-50 animate-fade-in">
+      <div className="bg-white border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 py-12">
+          <div className="grid lg:grid-cols-[1.1fr_0.9fr] gap-10 items-center">
+            <div>
+              <div className="inline-flex items-center gap-2 bg-red-50 text-red-700 px-3 py-1 rounded-full text-sm font-medium mb-5">
+                <Briefcase size={16} /> 定制订单下乡
+              </div>
+              <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-5" style={{ fontFamily: '"Noto Serif SC", serif' }}>
+                让每一份定制需求，精准匹配乡村工坊
+              </h2>
+              <p className="text-gray-600 leading-relaxed max-w-2xl">
+                从使用场景、预算、交付周期到工艺难度，系统会推荐合适的河南剪纸工坊，并展示产能、周期和助农收益。
+              </p>
+              <div className="grid grid-cols-3 gap-4 mt-8 max-w-2xl">
+                {[
+                  { value: '4类', label: '定制场景' },
+                  { value: '32家', label: '合作工坊' },
+                  { value: '24h', label: '方案响应' }
+                ].map((item) => (
+                  <div key={item.label} className="border border-gray-100 rounded-lg p-4 bg-stone-50">
+                    <div className="text-2xl font-bold text-gray-900">{item.value}</div>
+                    <div className="text-xs text-gray-500 mt-1">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-gray-900 text-white rounded-xl p-6 shadow-xl">
+              <div className="flex items-center justify-between mb-5">
+                <div>
+                  <div className="text-sm text-gray-400">当前推荐</div>
+                  <div className="text-2xl font-bold mt-1">{selectedWorkshop.name}</div>
+                </div>
+                <span className="bg-red-600 px-3 py-1 rounded-full text-xs">{selectedWorkshop.status}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="bg-white/5 p-4 rounded-lg">
+                  <div className="text-gray-400">主理传承人</div>
+                  <div className="font-bold mt-1">{selectedWorkshop.master}</div>
+                </div>
+                <div className="bg-white/5 p-4 rounded-lg">
+                  <div className="text-gray-400">预计周期</div>
+                  <div className="font-bold mt-1">{selectedWorkshop.leadTime}</div>
+                </div>
+                <div className="bg-white/5 p-4 rounded-lg col-span-2">
+                  <div className="text-gray-400">匹配场景</div>
+                  <div className="font-bold mt-1">{selectedWorkshop.bestFor}</div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Map & Process */}
-      <div className="py-16 bg-stone-50">
+      <div className="py-14">
         <div className="max-w-7xl mx-auto px-4">
           <div className="flex flex-col lg:flex-row gap-8 items-start">
-            {/* Interactive Map Visual (Optimized) */}
             <div className="w-full lg:w-2/3">
               <div className="flex justify-between items-end mb-6">
-                <h3 className="text-2xl font-bold text-gray-900 flex items-center">
+                <h3 className="text-2xl font-bold text-gray-900 flex items-center" style={{ fontFamily: '"Noto Serif SC", serif' }}>
                   <MapPin className="text-red-700 mr-2" /> 河南乡村工坊网络
                 </h3>
                 <div className="hidden sm:flex gap-4">
@@ -745,141 +1099,248 @@ const CustomPage = () => {
                 </div>
               </div>
 
-              <div className="relative w-full aspect-[16/9] bg-[#fdf6e3] rounded-2xl shadow-lg border-2 border-[#e6d7b9] overflow-hidden p-8 group">
-                {/* Simplified Map Background */}
-                <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/paper.png')]"></div>
-                <div className="absolute top-10 right-10 opacity-10 pointer-events-none">
-                  <Scissors size={200} />
+              <div className="relative w-full aspect-[16/11] sm:aspect-[16/9] bg-[#eef4ec] rounded-xl shadow-lg border border-[#cfdcc8] overflow-hidden">
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_35%_35%,rgba(255,255,255,0.85),rgba(221,233,216,0.65)_45%,rgba(198,216,191,0.75))]"></div>
+                <div className="absolute inset-0 opacity-35 bg-[url('https://www.transparenttextures.com/patterns/paper.png')]"></div>
+                <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} preserveAspectRatio="xMidYMid meet">
+                  <defs>
+                    <filter id="henanMapShadow" x="-20%" y="-20%" width="140%" height="140%">
+                      <feDropShadow dx="0" dy="12" stdDeviation="12" floodColor="#334155" floodOpacity="0.18" />
+                    </filter>
+                    <filter id="mapLabelShadow" x="-30%" y="-30%" width="160%" height="160%">
+                      <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor="#ffffff" floodOpacity="0.9" />
+                    </filter>
+                    <linearGradient id="realMapBase" x1="0" x2="1" y1="0" y2="1">
+                      <stop offset="0%" stopColor="#edf5e8" />
+                      <stop offset="48%" stopColor="#e7efe0" />
+                      <stop offset="100%" stopColor="#d8e6d3" />
+                    </linearGradient>
+                    <pattern id="mapGrid" width="58" height="58" patternUnits="userSpaceOnUse">
+                      <path d="M58 0H0V58" fill="none" stroke="#9cae99" strokeWidth="0.6" opacity="0.2" />
+                    </pattern>
+                  </defs>
+
+                  <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#realMapBase)" />
+                  <rect width={MAP_WIDTH} height={MAP_HEIGHT} fill="url(#mapGrid)" />
+
+                  {cityMapPaths.length > 0 ? (
+                    <g filter="url(#henanMapShadow)">
+                      {cityMapPaths.map((city, cityIndex) => (
+                        <g key={city.id}>
+                          <title>{city.name}</title>
+                          {city.paths.map((pathData, pathIndex) => (
+                            <path
+                              key={`${city.id}-${pathIndex}`}
+                              d={pathData}
+                              fill={cityFillPalette[cityIndex % cityFillPalette.length]}
+                              stroke="#b58b50"
+                              strokeWidth="1.15"
+                              opacity="0.96"
+                            />
+                          ))}
+                        </g>
+                      ))}
+                    </g>
+                  ) : (
+                    <g filter="url(#henanMapShadow)">
+                      <path d="M238 108 L322 70 L418 88 L488 64 L572 94 L646 84 L720 132 L760 198 L836 240 L804 318 L844 388 L744 426 L686 498 L604 464 L520 510 L432 468 L348 490 L292 424 L206 398 L232 304 L172 236 Z" fill="#ead49b" stroke="#b88b3d" strokeWidth="3" />
+                      <path d="M322 70 C386 172 392 300 348 490" stroke="#8f7449" strokeWidth="2" strokeDasharray="8 8" fill="none" opacity="0.45" />
+                      <path d="M172 236 C330 250 530 220 836 240" stroke="#8f7449" strokeWidth="2" strokeDasharray="8 8" fill="none" opacity="0.45" />
+                      <path d="M206 398 C366 370 520 392 744 426" stroke="#8f7449" strokeWidth="2" strokeDasharray="8 8" fill="none" opacity="0.45" />
+                    </g>
+                  )}
+
+                  <g>
+                    {henanRiverLines.map((river) => (
+                      <g key={river.name}>
+                        <path d={lineToPath(river.coords, mapProject)} stroke="#7ec8dd" strokeWidth={river.width} fill="none" opacity="0.72" strokeLinecap="round" strokeLinejoin="round" />
+                        <path d={lineToPath(river.coords, mapProject)} stroke="#f8fdff" strokeWidth="2.4" fill="none" opacity="0.82" strokeLinecap="round" strokeLinejoin="round" />
+                      </g>
+                    ))}
+                  </g>
+
+                  <g opacity="0.68">
+                    {henanLogisticsRoutes.map((route, index) => (
+                      <path
+                        key={index}
+                        d={lineToPath(route, mapProject)}
+                        stroke={index === 0 ? '#c2410c' : '#b45309'}
+                        strokeWidth="2.2"
+                        strokeDasharray="8 7"
+                        fill="none"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                    <path
+                      d={lineToPath([[selectedWorkshop.lng, selectedWorkshop.lat], [113.62, 34.75]], mapProject)}
+                      stroke="#dc2626"
+                      strokeWidth="3"
+                      strokeDasharray="5 6"
+                      fill="none"
+                      opacity="0.72"
+                      strokeLinecap="round"
+                    />
+                  </g>
+
+                  <g filter="url(#mapLabelShadow)">
+                    <text x={MAP_WIDTH / 2 - 38} y={MAP_HEIGHT / 2 + 18} fill="#6b5b37" fontSize="30" fontWeight="800" opacity="0.22">河南省</text>
+                    {henanCityLabels.map((label) => {
+                      const point = mapProject(label.lng, label.lat);
+                      return (
+                        <g key={label.name} className={label.major ? 'hidden sm:block' : 'hidden md:block'}>
+                          <circle cx={point.x} cy={point.y - 2} r={label.major ? 3.2 : 2.2} fill="#475569" opacity="0.55" />
+                          <text x={point.x + 6} y={point.y + 4} fill="#334155" fontSize={label.major ? 15 : 12} fontWeight={label.major ? 700 : 500} opacity={label.major ? 0.9 : 0.68}>
+                            {label.name}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </g>
+
+                  <g transform="translate(806 472)" className="hidden sm:block">
+                    <rect x="0" y="0" width="132" height="42" rx="8" fill="rgba(255,255,255,0.74)" stroke="#d6d3d1" />
+                    <path d="M18 24 H92" stroke="#334155" strokeWidth="3" />
+                    <path d="M18 18 V30 M92 18 V30" stroke="#334155" strokeWidth="2" />
+                    <text x="18" y="15" fill="#475569" fontSize="11">比例尺</text>
+                    <text x="98" y="28" fill="#475569" fontSize="12">约100km</text>
+                  </g>
+
+                  <g transform="translate(912 54)" className="hidden sm:block">
+                    <circle cx="0" cy="0" r="22" fill="rgba(255,255,255,0.72)" stroke="#d6d3d1" />
+                    <path d="M0 -15 L6 6 L0 2 L-6 6 Z" fill="#b91c1c" />
+                    <text x="-5" y="-24" fill="#475569" fontSize="11" fontWeight="700">N</text>
+                  </g>
+                </svg>
+
+                <div className="absolute left-5 top-5 bg-white/85 backdrop-blur px-3 py-2 rounded-lg border border-white/70 shadow-sm">
+                  <div className="text-xs text-gray-500">{cityMapPaths.length ? '真实行政边界' : '离线示意图层'}</div>
+                  <div className="text-sm font-bold text-gray-900">河南工坊分布 GIS</div>
                 </div>
 
-                <div className="w-full h-full relative">
-                  {/* Connection Lines (SVG) */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
-                    {/* Yulin -> Yanan */}
-                    <path d="M30%,30% Q40%,45% 45%,60%" stroke="#d97706" strokeWidth="2" strokeDasharray="6,4" fill="none" className="opacity-40" />
-                    {/* Yanan -> Yanchuan */}
-                    <path d="M45%,60% Q60%,55% 75%,50%" stroke="#d97706" strokeWidth="2" strokeDasharray="6,4" fill="none" className="opacity-40" />
-                  </svg>
+                <div className="absolute inset-0">
+                  {workshops.map((workshop) => {
+                    const selected = selectedWorkshopId === workshop.id;
+                    const dotColor = workshop.statusTone === 'yellow' ? 'bg-yellow-500' : workshop.statusTone === 'green' ? 'bg-green-600' : 'bg-red-600';
+                    const point = mapProject(workshop.lng, workshop.lat);
 
-                  {/* Node 1: Luoyang Mengjin */}
-                  <div className="absolute top-[25%] left-[25%] group/node cursor-pointer z-10">
-                    <div className="relative">
-                      <div className="w-4 h-4 bg-yellow-500 rounded-full"></div>
-                      <div className="absolute -top-1 -left-1 w-6 h-6 border border-yellow-500 rounded-full animate-ping opacity-50"></div>
-                    </div>
-                    <div className="absolute left-6 top-[-10px] bg-white px-4 py-3 rounded-lg shadow-xl text-xs min-w-[160px] border border-stone-100 transform transition-all group-hover/node:scale-105">
-                      <div className="flex justify-between items-center mb-1">
-                        <p className="font-bold text-gray-900 text-sm">洛阳·孟津工坊</p>
-                        <span className="text-[10px] bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded">待接单</span>
-                      </div>
-                      <p className="text-gray-500 mb-1">特色：细纹窗花</p>
-                      <div className="flex items-center text-gray-400">
-                        <User size={10} className="mr-1" /> 15位民间艺人
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Node 2: Sanmenxia Shanzhou (Core) */}
-                  <div className="absolute top-[55%] left-[42%] group/node cursor-pointer z-20">
-                    <div className="relative">
-                      <div className="w-6 h-6 bg-red-600 rounded-full border-2 border-white shadow-md"></div>
-                      <div className="absolute -top-2 -left-2 w-10 h-10 border-2 border-red-500 rounded-full animate-pulse opacity-60"></div>
-                    </div>
-                    <div className="absolute left-10 top-[-30px] bg-white px-4 py-3 rounded-lg shadow-xl text-xs min-w-[180px] border-l-4 border-red-600 transform transition-all group-hover/node:scale-105">
-                      <div className="flex justify-between items-center mb-1">
-                        <p className="font-bold text-gray-900 text-sm">三门峡·陕州工坊</p>
-                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded flex items-center gap-1">
-                          <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>生产中
+                    return (
+                      <button
+                        key={workshop.id}
+                        onClick={() => setSelectedWorkshopId(workshop.id)}
+                        className="absolute z-10 -translate-x-1/2 -translate-y-1/2 text-center"
+                        style={{ top: `${(point.y / MAP_HEIGHT) * 100}%`, left: `${(point.x / MAP_WIDTH) * 100}%` }}
+                        title={workshop.name}
+                      >
+                        <span className={`mx-auto block rounded-full border-2 border-white shadow-lg transition ${selected ? 'w-8 h-8 bg-red-600 ring-4 ring-red-200 shadow-red-900/30' : `w-4 h-4 ${dotColor} hover:scale-125`}`}></span>
+                        <span className={`mt-1 block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] shadow-sm border ${selected ? 'bg-red-700 text-white border-red-500' : 'bg-white/90 text-gray-700 border-white'}`}>
+                          {workshop.shortName}
                         </span>
-                      </div>
-                      <p className="text-gray-500 mb-1">传承人：<span className="font-bold text-gray-800">王秀英</span></p>
-                      <p className="text-gray-500 mb-2">特色：拉手娃娃 / 大型场景</p>
-                      <div className="w-full bg-gray-100 rounded-full h-1.5 mb-1">
-                        <div className="bg-red-600 h-1.5 rounded-full" style={{ width: '80%' }}></div>
-                      </div>
-                      <p className="text-[10px] text-gray-400 text-right">订单饱和度 80%</p>
-                    </div>
-                  </div>
+                      </button>
+                    );
+                  })}
+                </div>
 
-                  {/* Node 3: Lingbao Hangu */}
-                  <div className="absolute top-[45%] right-[20%] group/node cursor-pointer z-10">
-                    <div className="relative">
-                      <div className="w-4 h-4 bg-green-600 rounded-full"></div>
-                      <div className="absolute -top-1 -left-1 w-6 h-6 border border-green-500 rounded-full animate-ping opacity-50"></div>
+              </div>
+              <div className="mt-3 bg-white rounded-xl border border-gray-100 shadow-sm p-4 md:p-5">
+                <div className="grid gap-4 md:grid-cols-[1.1fr_1fr_1fr_1.4fr] md:items-center">
+                  <div className="flex justify-between gap-3 md:block">
+                    <div>
+                      <div className="text-xs text-gray-500">选中工坊</div>
+                      <div className="font-bold text-gray-900 mt-1">{selectedWorkshop.name}</div>
                     </div>
-                    <div className="absolute right-6 top-[-10px] bg-white px-4 py-3 rounded-lg shadow-xl text-xs min-w-[160px] border border-stone-100 transform transition-all group-hover/node:scale-105">
-                      <div className="flex justify-between items-center mb-1">
-                        <p className="font-bold text-gray-900 text-sm">灵宝·函谷关</p>
-                        <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">生产中</span>
+                    <span className={`h-fit text-[10px] px-2 py-1 rounded md:inline-block md:mt-2 ${selectedWorkshop.statusTone === 'yellow' ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'}`}>
+                      {selectedWorkshop.status}
+                    </span>
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3 text-xs">
+                    <span className="block text-gray-400">特色</span>
+                    <span className="block font-medium text-gray-800 mt-1">{selectedWorkshop.specialty}</span>
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3 text-xs">
+                    <span className="block text-gray-400">周期</span>
+                    <span className="block font-medium text-gray-800 mt-1">{selectedWorkshop.leadTime}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <div className="w-full">
+                      <div className="flex justify-between mb-1">
+                        <span>产能占用</span>
+                        <span>{selectedWorkshop.capacity}%</span>
                       </div>
-                      <p className="text-gray-500 mb-1">传承人：<span className="font-bold text-gray-800">孟照国</span></p>
-                      <p className="text-gray-500 mb-1">特色：团花纹样</p>
-                      <div className="flex items-center text-gray-400">
-                        <User size={10} className="mr-1" /> 8位在职绣娘
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-red-600 rounded-full" style={{ width: `${selectedWorkshop.capacity}%` }}></div>
                       </div>
                     </div>
                   </div>
                 </div>
+              </div>
+              <div className="grid sm:grid-cols-4 gap-3 mt-5">
+                {useCases.map((item) => (
+                  <button
+                    key={item.title}
+                    onClick={() => setSelectedUseCase(item.title)}
+                    className={`text-left p-4 rounded-lg border transition ${selectedUseCase === item.title ? 'bg-red-50 border-red-200 text-red-800' : 'bg-white border-gray-100 hover:border-red-100 text-gray-700'}`}
+                  >
+                    <div className="font-bold text-sm">{item.title}</div>
+                    <div className="text-xs mt-1 text-gray-500">{item.desc}</div>
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Real-time Data Panel (New) */}
             <div className="w-full lg:w-1/3 space-y-6">
               <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                <h4 className="font-bold text-gray-900 mb-4 flex items-center">
-                  <Activity className="text-red-700 mr-2" size={20} /> 实时助农数据
+                <h4 className="font-bold text-gray-900 mb-5 flex items-center">
+                  <Activity className="text-red-700 mr-2" size={20} /> 工坊匹配详情
                 </h4>
-                <div className="space-y-6">
-                  <div>
-                    <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-500">今日新增订单</span>
-                      <span className="font-bold text-gray-900">23 单</span>
+                <div className="space-y-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="text-xl font-bold text-gray-900">{selectedWorkshop.shortName}工坊</div>
+                      <div className="text-sm text-gray-500 mt-1">传承人：{selectedWorkshop.master}</div>
                     </div>
-                    <div className="w-full bg-gray-100 rounded-full h-2">
-                      <div className="bg-red-500 h-2 rounded-full w-[45%]"></div>
-                    </div>
+                    <span className="bg-red-50 text-red-700 px-2 py-1 rounded text-xs">{selectedUseCase}</span>
                   </div>
                   <div>
                     <div className="flex justify-between text-sm mb-1">
-                      <span className="text-gray-500">本月累计增收</span>
-                      <span className="font-bold text-red-700">¥ 128,500</span>
+                      <span className="text-gray-500">当前产能占用</span>
+                      <span className="font-bold text-gray-900">{selectedWorkshop.capacity}%</span>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full w-[72%]"></div>
+                      <div className="bg-red-500 h-2 rounded-full" style={{ width: `${selectedWorkshop.capacity}%` }}></div>
                     </div>
                   </div>
-                  <div className="pt-4 border-t border-gray-100 grid grid-cols-2 gap-4 text-center">
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900">32</div>
-                      <div className="text-xs text-gray-500">合作工坊</div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-stone-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">预计周期</div>
+                      <div className="font-bold text-gray-900 mt-1">{selectedWorkshop.leadTime}</div>
                     </div>
-                    <div>
-                      <div className="text-2xl font-bold text-gray-900">500+</div>
-                      <div className="text-xs text-gray-500">带动就业</div>
+                    <div className="bg-stone-50 rounded-lg p-3">
+                      <div className="text-xs text-gray-500">本月增收</div>
+                      <div className="font-bold text-red-700 mt-1">{selectedWorkshop.monthlyIncome}</div>
                     </div>
+                  </div>
+                  <div className="text-sm text-gray-600 bg-red-50 border border-red-100 rounded-lg p-3">
+                    推荐原因：{selectedWorkshop.specialty}适合{selectedWorkshop.bestFor}，与当前“{selectedUseCase}”场景匹配度高。
                   </div>
                 </div>
               </div>
 
-              {/* Process Steps (Simplified) */}
-              <div className="bg-stone-50 p-6 rounded-xl">
-                <h4 className="font-bold text-gray-900 mb-4 text-sm">定制流程</h4>
-                <div className="space-y-4">
-                  {[
-                    { title: '提交需求', desc: '在线填写意向' },
-                    { title: '设计对接', desc: '设计师出具方案' },
-                    { title: '大师监制', desc: '分配至对应工坊' },
-                    { title: '制作交付', desc: '统一质检发货' }
-                  ].map((step, idx) => (
-                    <div key={idx} className="flex items-center gap-3">
-                      <div className="w-6 h-6 rounded-full bg-white border border-red-200 text-red-700 flex items-center justify-center text-xs font-bold shadow-sm">
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-gray-900">{step.title}</p>
-                        <p className="text-xs text-gray-500">{step.desc}</p>
-                      </div>
-                    </div>
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                <h4 className="font-bold text-gray-900 mb-4 text-sm">服务套餐</h4>
+                <div className="space-y-3">
+                  {servicePackages.map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setSelectedPackage(item.id)}
+                      className={`w-full text-left p-4 rounded-lg border transition ${selectedPackage === item.id ? 'border-red-300 bg-red-50' : 'border-gray-100 hover:border-red-100'}`}
+                    >
+                      <span className="flex justify-between gap-4">
+                        <span className="font-bold text-gray-900">{item.name}</span>
+                        <span className="text-red-700 text-sm font-bold">{item.price}</span>
+                      </span>
+                      <span className="block text-xs text-gray-500 mt-1">{item.desc} · {item.cycle}</span>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -888,21 +1349,50 @@ const CustomPage = () => {
         </div>
       </div>
 
-      {/* Case Studies */}
-      <div className="py-16 bg-white border-t border-gray-100">
+      <div className="py-14 bg-white border-y border-gray-100">
         <div className="max-w-7xl mx-auto px-4">
-          <h3 className="text-2xl font-bold mb-10 text-center text-gray-900 flex items-center justify-center gap-2">
-            <Award className="text-red-700" /> 成功案例展示
-          </h3>
-          <div className="grid md:grid-cols-3 gap-8">
+          <div className="flex items-end justify-between gap-6 mb-8">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2" style={{ fontFamily: '"Noto Serif SC", serif' }}>
+                <Award className="text-red-700" /> 定制案例库
+              </h3>
+              <p className="text-gray-500 text-sm mt-2">按场景沉淀可复用方案，缩短沟通和打样周期。</p>
+            </div>
+            <div className="hidden md:flex items-center gap-2 text-sm text-gray-500">
+              <TrendingUp size={16} className="text-red-600" /> 平均复购率 38%
+            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
             {customCases.map((item) => (
-              <div key={item.id} className="group cursor-pointer">
-                <div className="aspect-[4/3] bg-gray-100 rounded-lg overflow-hidden mb-4 relative">
-                  <img src={`/api/placeholder/400/300?text=${item.image}`} className="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center text-white font-bold">查看详情</div>
+              <div key={item.id} className="group cursor-pointer border border-gray-100 rounded-xl overflow-hidden hover:shadow-lg transition bg-white">
+                <div className="aspect-[4/3] bg-red-50 relative overflow-hidden">
+                  <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/paper.png')] opacity-30"></div>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-28 h-28 bg-red-600 shadow-xl transform rotate-45 group-hover:rotate-[60deg] transition-transform duration-500"></div>
+                    <div className="absolute w-20 h-20 border-4 border-white/70 rounded-full"></div>
+                    <Scissors className="absolute text-white/80" size={42} />
+                  </div>
+                  <div className="absolute left-4 top-4 bg-white/90 px-3 py-1 rounded-full text-xs text-red-700 font-bold">
+                    {item.image}
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/55 to-transparent text-white">
+                    <div className="text-xs opacity-80">已交付案例</div>
+                    <div className="font-bold">{item.title}</div>
+                  </div>
                 </div>
-                <h4 className="font-bold text-lg text-gray-900 mb-1">{item.title}</h4>
-                <p className="text-sm text-gray-500">{item.desc}</p>
+                <div className="p-5">
+                  <p className="text-sm text-gray-500 leading-relaxed">{item.desc}</p>
+                  <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
+                    <div className="bg-stone-50 rounded-lg p-3">
+                      <span className="block text-gray-400">工期</span>
+                      <span className="font-bold text-gray-900">7-12天</span>
+                    </div>
+                    <div className="bg-stone-50 rounded-lg p-3">
+                      <span className="block text-gray-400">批量</span>
+                      <span className="font-bold text-gray-900">500+</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -910,12 +1400,28 @@ const CustomPage = () => {
       </div>
 
       {/* Form Section */}
-      <div className="py-20 max-w-4xl mx-auto px-4">
-        <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden flex flex-col md:flex-row min-h-[500px]">
-          <div className="bg-red-900 p-8 text-white md:w-1/3 flex flex-col justify-between bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
+      <div className="py-16 max-w-6xl mx-auto px-4">
+        <div className="bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden grid lg:grid-cols-[0.9fr_1.3fr] min-h-[520px]">
+          <div className="bg-red-900 p-8 text-white flex flex-col justify-between bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]">
             <div>
               <h3 className="text-2xl font-bold mb-4">开始定制</h3>
-              <p className="text-red-200 text-sm mb-6">您的订单将直接为乡村手艺人带来收益。</p>
+              <p className="text-red-200 text-sm mb-6">当前已生成一份推荐方案，可在提交前继续调整。</p>
+              <div className="space-y-3 mb-8">
+                <div className="bg-white/10 rounded-lg p-4">
+                  <div className="text-xs text-red-200">推荐工坊</div>
+                  <div className="font-bold mt-1">{selectedWorkshop.name}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-white/10 rounded-lg p-3">
+                    <div className="text-xs text-red-200">场景</div>
+                    <div className="font-bold mt-1">{selectedUseCase}</div>
+                  </div>
+                  <div className="bg-white/10 rounded-lg p-3">
+                    <div className="text-xs text-red-200">套餐</div>
+                    <div className="font-bold mt-1">{selectedService.name}</div>
+                  </div>
+                </div>
+              </div>
               <ul className="space-y-4 text-sm">
                 <li className="flex items-center gap-2"><CheckCircle size={16} className="text-red-400" /> 免费设计咨询</li>
                 <li className="flex items-center gap-2"><CheckCircle size={16} className="text-red-400" /> 支持小批量起订</li>
@@ -923,11 +1429,11 @@ const CustomPage = () => {
               </ul>
             </div>
             <div className="mt-8 text-sm opacity-60">
-              © 剪韵新生项目组
+              剪韵中原定制服务
             </div>
           </div>
 
-          <div className="p-8 md:w-2/3 relative">
+          <div className="p-8 relative">
             {!submitted ? (
               <form className="space-y-6 animate-fade-in" onSubmit={handleSubmit}>
                 <div className="grid grid-cols-2 gap-4">
@@ -943,19 +1449,53 @@ const CustomPage = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">定制类型</label>
-                  <div className="flex gap-4 flex-wrap">
-                    {['企业礼品', '个人收藏', '家居装饰', '其他'].map(type => (
-                      <label key={type} className="flex items-center cursor-pointer">
-                        <input type="radio" name="type" className="mr-2 text-red-600 focus:ring-red-500" />
-                        <span className="text-sm text-gray-600">{type}</span>
-                      </label>
+                  <div className="grid sm:grid-cols-4 gap-3">
+                    {useCases.map(type => (
+                      <button
+                        type="button"
+                        key={type.title}
+                        onClick={() => setSelectedUseCase(type.title)}
+                        className={`text-left rounded-lg border p-3 transition ${selectedUseCase === type.title ? 'bg-red-50 border-red-200 text-red-800' : 'border-gray-200 hover:border-red-100 text-gray-600'}`}
+                      >
+                        <span className="block text-sm font-bold">{type.title}</span>
+                        <span className="block text-xs mt-1 text-gray-500">{type.desc}</span>
+                      </button>
                     ))}
                   </div>
                 </div>
 
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">服务套餐</label>
+                  <div className="grid md:grid-cols-3 gap-3">
+                    {servicePackages.map((item) => (
+                      <button
+                        type="button"
+                        key={item.id}
+                        onClick={() => setSelectedPackage(item.id)}
+                        className={`text-left rounded-lg border p-4 transition ${selectedPackage === item.id ? 'bg-red-50 border-red-200' : 'border-gray-200 hover:border-red-100'}`}
+                      >
+                        <span className="block font-bold text-gray-900">{item.name}</span>
+                        <span className="block text-red-700 text-sm mt-1">{item.price}</span>
+                        <span className="block text-xs text-gray-500 mt-2">{item.cycle}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">预计数量</label>
+                    <input type="number" min="1" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition" placeholder="例如 500" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">期望交付时间</label>
+                    <input type="text" className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition" placeholder={selectedWorkshop.leadTime} />
+                  </div>
+                </div>
+
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">需求描述</label>
-                  <textarea required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition h-32" placeholder="请简要描述您的定制想法，例如：用于婚礼伴手礼，希望有龙凤呈祥图案..." />
+                  <textarea required className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none transition h-32" placeholder={`请描述${selectedUseCase}需求，例如纹样、用途、预算、包装形式...`} />
                 </div>
 
                 <div>
@@ -1142,6 +1682,622 @@ const ProfilesPage = () => {
 // Modified ARPage to accept onExit prop
 const ARPage = ({ onExit }) => {
   const [showFaq, setShowFaq] = useState(false);
+  const [activeCourse, setActiveCourse] = useState('basic');
+  const [basicStep, setBasicStep] = useState(0);
+  const [basicRotation, setBasicRotation] = useState(0);
+  const [basicDragX, setBasicDragX] = useState(null);
+  const [advancedStep, setAdvancedStep] = useState(0);
+  const [completedSteps, setCompletedSteps] = useState([]);
+  const [fingerPoint, setFingerPoint] = useState({ x: 39, y: 61 });
+  const [stepProgress, setStepProgress] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [modelView, setModelView] = useState('front');
+  const [toast, setToast] = useState('');
+
+  const advancedSteps = [
+    {
+      id: 'fold',
+      label: '折叠',
+      title: '折叠步骤',
+      angle: completedSteps.includes('fold') ? 90 : 45,
+      help: '按住蓝色操作点沿蓝色轨迹拖动，观察虚拟纸张变形。',
+      doneText: '折叠完成：角度已校准到 90°。'
+    },
+    {
+      id: 'cut',
+      label: '剪裁',
+      title: '剪裁步骤',
+      angle: 90,
+      help: '按住虚拟剪刀沿蓝色轨迹拖动，绿色路径表示已剪裁。',
+      doneText: '剪裁成功：拉手娃娃轮廓已生成。'
+    },
+    {
+      id: 'assemble',
+      label: '拼接',
+      title: '拼接步骤',
+      angle: 90,
+      help: '拖动蓝色操作点靠近中心参考点，系统会自动吸附对齐。',
+      doneText: '拼接完成：轻轻压实折痕，观察立体效果。'
+    }
+  ];
+  const basicSteps = [
+    {
+      id: 'fold',
+      label: '折叠',
+      title: '一折成五瓣',
+      help: '沿红色虚线将方纸向中心折叠，形成五折团花的基础角。'
+    },
+    {
+      id: 'cut',
+      label: '剪裁',
+      title: '剪出花瓣纹样',
+      help: '沿黄色虚线剪出花瓣、花蕊和边缘纹样，保留连接点。'
+    },
+    {
+      id: 'open',
+      label: '展开',
+      title: '展开团花',
+      help: '轻轻展开折纸，观察五瓣团花和中心镂空纹样。'
+    }
+  ];
+
+  const currentAdvancedStep = advancedSteps[advancedStep];
+  const isAdvancedCourse = activeCourse === 'advanced';
+  const currentStepDone = completedSteps.includes(currentAdvancedStep.id);
+  const viewTransforms = {
+    front: 'rotateX(0deg) rotateY(0deg)',
+    left: 'rotateX(8deg) rotateY(-26deg)',
+    right: 'rotateX(8deg) rotateY(26deg)'
+  };
+  const gestureTracks = {
+    fold: {
+      start: { x: 39, y: 61 },
+      end: { x: 62, y: 36 }
+    },
+    cut: {
+      start: { x: 50, y: 13 },
+      end: { x: 50, y: 86 }
+    },
+    assemble: {
+      start: { x: 24, y: 52 },
+      end: { x: 50, y: 52 }
+    }
+  };
+
+  const showToast = (message) => {
+    setToast(message);
+    window.setTimeout(() => setToast(''), 1800);
+  };
+
+  const selectAdvancedCourse = () => {
+    setActiveCourse('advanced');
+    setAdvancedStep(0);
+    setCompletedSteps([]);
+    setFingerPoint(gestureTracks.fold.start);
+    setStepProgress(0);
+    setModelView('front');
+    showToast('已进入进阶课程：拉手娃娃');
+  };
+
+  const completeCurrentStep = () => {
+    setCompletedSteps((prev) => (
+      prev.includes(currentAdvancedStep.id) ? prev : [...prev, currentAdvancedStep.id]
+    ));
+    setFingerPoint(gestureTracks[currentAdvancedStep.id].end);
+    setStepProgress(100);
+    showToast(currentAdvancedStep.doneText);
+  };
+
+  const repeatCurrentStep = () => {
+    setCompletedSteps((prev) => prev.filter((item) => item !== currentAdvancedStep.id));
+    setFingerPoint(gestureTracks[currentAdvancedStep.id].start);
+    setStepProgress(0);
+    showToast(`已重置${currentAdvancedStep.label}步骤`);
+  };
+
+  const goPrevStep = () => {
+    setAdvancedStep((prev) => {
+      const next = Math.max(prev - 1, 0);
+      const targetStep = advancedSteps[next].id;
+      const isDone = completedSteps.includes(targetStep);
+      setFingerPoint(isDone ? gestureTracks[targetStep].end : gestureTracks[targetStep].start);
+      setStepProgress(isDone ? 100 : 0);
+      return next;
+    });
+  };
+
+  const goNextStep = () => {
+    if (!currentStepDone) {
+      completeCurrentStep();
+      return;
+    }
+    setAdvancedStep((prev) => {
+      const next = Math.min(prev + 1, advancedSteps.length - 1);
+      const targetStep = advancedSteps[next].id;
+      const isDone = completedSteps.includes(targetStep);
+      setFingerPoint(isDone ? gestureTracks[targetStep].end : gestureTracks[targetStep].start);
+      setStepProgress(isDone ? 100 : 0);
+      return next;
+    });
+  };
+
+  const getTrackInteraction = (point, track) => {
+    const dx = track.end.x - track.start.x;
+    const dy = track.end.y - track.start.y;
+    const lengthSq = dx * dx + dy * dy;
+    const projection = Math.min(1, Math.max(0, ((point.x - track.start.x) * dx + (point.y - track.start.y) * dy) / lengthSq));
+
+    return {
+      progress: Math.round(projection * 100),
+      point: {
+        x: track.start.x + dx * projection,
+        y: track.start.y + dy * projection
+      }
+    };
+  };
+
+  const updateGestureFromPointer = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const pointerPoint = {
+      x: Math.min(100, Math.max(0, ((event.clientX - rect.left) / rect.width) * 100)),
+      y: Math.min(100, Math.max(0, ((event.clientY - rect.top) / rect.height) * 100))
+    };
+    const interaction = getTrackInteraction(pointerPoint, gestureTracks[currentAdvancedStep.id]);
+
+    setFingerPoint(interaction.point);
+
+    if (!isAdvancedCourse || currentStepDone) return interaction.progress;
+
+    setStepProgress(interaction.progress);
+
+    if (interaction.progress >= 96) {
+      completeCurrentStep();
+    }
+
+    return interaction.progress;
+  };
+
+  const handlePointerMove = (event) => {
+    if (!isDragging || !isAdvancedCourse) return;
+    updateGestureFromPointer(event);
+  };
+
+  const handleBasicPointerMove = (event) => {
+    if (isAdvancedCourse || basicDragX === null) return;
+    const deltaX = event.clientX - basicDragX;
+    setBasicRotation((prev) => prev + deltaX * 0.55);
+    setBasicDragX(event.clientX);
+  };
+
+  const handleARAction = (event) => {
+    if (!isAdvancedCourse) return;
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    updateGestureFromPointer(event);
+  };
+
+  const handleBasicARAction = (event) => {
+    if (isAdvancedCourse) return;
+    setBasicDragX(event.clientX);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
+  const handlePointerEnd = (event) => {
+    setIsDragging(false);
+    setBasicDragX(null);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  const handleShareOrSave = (action) => {
+    showToast(action === 'save' ? '成品已保存到演示相册' : '分享卡片已生成');
+  };
+
+  const jumpToAdvancedStep = (index) => {
+    const targetStep = advancedSteps[index].id;
+    const isDone = completedSteps.includes(targetStep);
+    setAdvancedStep(index);
+    setFingerPoint(isDone ? gestureTracks[targetStep].end : gestureTracks[targetStep].start);
+    setStepProgress(isDone ? 100 : 0);
+  };
+
+  const renderBasicFoldScene = () => (
+    <>
+      {/* 基础折叠：用五条红色虚线提示五折团花的折叠方向。 */}
+      <div
+        className="absolute w-60 h-60 bg-red-600 shadow-2xl transition-transform duration-200"
+        style={{
+          transform: `rotateX(8deg) rotateY(${basicRotation}deg) rotateZ(45deg) skewY(-10deg)`,
+          transformStyle: 'preserve-3d'
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/10"></div>
+        {[0, 1, 2, 3, 4].map((item) => (
+          <div
+            key={item}
+            className="absolute left-1/2 top-1/2 h-[120%] border-l-2 border-dashed border-red-100/90 origin-top"
+            style={{ transform: `rotate(${item * 36 - 72}deg) translateY(-50%)` }}
+          ></div>
+        ))}
+        <div className="absolute inset-8 border-2 border-dashed border-yellow-300/70 rounded-full"></div>
+      </div>
+      <div className="absolute top-8 right-8 bg-white/90 text-black text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+        <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+        折叠角度：72°
+      </div>
+    </>
+  );
+
+  const renderBasicCutScene = () => (
+    <>
+      {/* 基础剪裁：黄色虚线标出花瓣和花蕊剪裁路径。 */}
+      <div
+        className="relative w-64 h-64 transition-transform duration-200"
+        style={{
+          transform: `rotateX(8deg) rotateY(${basicRotation}deg)`,
+          transformStyle: 'preserve-3d'
+        }}
+      >
+        <div className="absolute inset-8 bg-red-600 shadow-2xl" style={{ clipPath: 'polygon(50% 0%, 62% 34%, 100% 38%, 68% 58%, 80% 96%, 50% 72%, 20% 96%, 32% 58%, 0% 38%, 38% 34%)' }}></div>
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+          <path d="M50 7 C57 28 72 30 92 37 C75 48 72 61 79 91 C60 73 49 71 21 91 C29 64 26 49 8 37 C31 31 42 27 50 7Z" fill="none" stroke="#FACC15" strokeWidth="2.2" strokeDasharray="4 4" />
+          <circle cx="50" cy="50" r="11" fill="none" stroke="#FACC15" strokeWidth="2" strokeDasharray="3 3" />
+          {[0, 1, 2, 3, 4].map((item) => (
+            <circle key={item} cx={50 + Math.cos((item * 72 - 90) * Math.PI / 180) * 24} cy={50 + Math.sin((item * 72 - 90) * Math.PI / 180) * 24} r="4" fill="none" stroke="#38BDF8" strokeWidth="1.5" />
+          ))}
+        </svg>
+      </div>
+      <div className="absolute top-8 right-8 bg-white/90 text-black text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+        <Scissors size={14} className="text-yellow-600" />
+        花瓣剪裁路径
+      </div>
+    </>
+  );
+
+  const renderBasicOpenScene = () => (
+    <>
+      {/* 基础展开：五瓣团花成品，展示中心镂空、花瓣和参考点。 */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div
+          className="relative w-72 h-72 drop-shadow-2xl transition-transform duration-200"
+          style={{
+            transform: `rotateX(10deg) rotateY(${basicRotation}deg)`,
+            transformStyle: 'preserve-3d'
+          }}
+        >
+          <div className="absolute inset-0 rounded-full bg-red-500/20 blur-2xl"></div>
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 200 200" aria-label="五折团花成品">
+            <defs>
+              <radialGradient id="basicFlowerRed" cx="50%" cy="42%" r="65%">
+                <stop offset="0%" stopColor="#fb7185" />
+                <stop offset="58%" stopColor="#dc2626" />
+                <stop offset="100%" stopColor="#991b1b" />
+              </radialGradient>
+              <filter id="basicFlowerShadow" x="-20%" y="-20%" width="140%" height="140%">
+                <feDropShadow dx="0" dy="8" stdDeviation="5" floodColor="#000000" floodOpacity="0.35" />
+              </filter>
+            </defs>
+            <g filter="url(#basicFlowerShadow)">
+              {[0, 1, 2, 3, 4].map((item) => (
+                <path
+                  key={item}
+                  d="M100 100 C82 76 79 47 100 20 C121 47 118 76 100 100 Z"
+                  fill="url(#basicFlowerRed)"
+                  transform={`rotate(${item * 72} 100 100)`}
+                />
+              ))}
+              <circle cx="100" cy="100" r="34" fill="#111827" opacity="0.36" />
+              <circle cx="100" cy="100" r="22" fill="none" stroke="#fee2e2" strokeWidth="5" opacity="0.9" />
+              {[0, 1, 2, 3, 4].map((item) => (
+                <circle key={item} cx={100 + Math.cos((item * 72 - 90) * Math.PI / 180) * 55} cy={100 + Math.sin((item * 72 - 90) * Math.PI / 180) * 55} r="9" fill="#111827" opacity="0.24" />
+              ))}
+              {[0, 1, 2, 3, 4].map((item) => (
+                <path
+                  key={`line-${item}`}
+                  d="M100 112 C112 128 128 132 146 124"
+                  fill="none"
+                  stroke="#fecaca"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  opacity="0.72"
+                  transform={`rotate(${item * 72} 100 100)`}
+                />
+              ))}
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div className="absolute top-8 right-8 bg-white/90 text-black text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+        <CheckCircle size={14} className="text-green-600" />
+        五瓣团花已展开
+      </div>
+    </>
+  );
+
+  const renderBasicARScene = () => (
+    <>
+      {basicStep === 0 && renderBasicFoldScene()}
+      {basicStep === 1 && renderBasicCutScene()}
+      {basicStep === 2 && renderBasicOpenScene()}
+
+      <div className="absolute top-6 left-6 flex flex-wrap gap-2">
+        {basicSteps.map((step, index) => (
+          <button
+            key={step.id}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={() => setBasicStep(index)}
+            className={`px-3 py-1 rounded-full text-xs border transition ${basicStep === index ? 'bg-red-600 text-white border-red-300' : 'bg-gray-900/70 text-gray-300 border-gray-600 hover:bg-gray-800'}`}
+          >
+            {index + 1}. {step.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="absolute top-16 left-6 flex gap-2">
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setBasicRotation((prev) => prev - 36)}
+          className="px-3 py-1 rounded-full text-xs bg-gray-900/70 text-gray-200 border border-gray-600 hover:bg-gray-800"
+        >
+          左转
+        </button>
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setBasicRotation(0)}
+          className="px-3 py-1 rounded-full text-xs bg-gray-900/70 text-gray-200 border border-gray-600 hover:bg-gray-800"
+        >
+          复位
+        </button>
+        <button
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={() => setBasicRotation((prev) => prev + 36)}
+          className="px-3 py-1 rounded-full text-xs bg-gray-900/70 text-gray-200 border border-gray-600 hover:bg-gray-800"
+        >
+          右转
+        </button>
+      </div>
+
+      <div className="absolute bottom-10 left-10 bg-black/70 backdrop-blur text-white text-xs px-3 py-2 rounded-lg max-w-[240px] border-l-2 border-yellow-400">
+        {basicSteps[basicStep].label}：拖动旋转查看
+      </div>
+    </>
+  );
+
+  const renderAdvancedFoldScene = () => (
+    <>
+      {/* 折叠步骤：红色虚线为折叠线，蓝色参考点模拟手指校准位置。 */}
+      <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+        <path
+          d={`M${gestureTracks.fold.start.x} ${gestureTracks.fold.start.y} L${gestureTracks.fold.end.x} ${gestureTracks.fold.end.y}`}
+          stroke="#60A5FA"
+          strokeWidth="0.8"
+          strokeDasharray="3 2"
+          fill="none"
+        />
+        <path
+          d={`M${gestureTracks.fold.start.x} ${gestureTracks.fold.start.y} L${gestureTracks.fold.end.x} ${gestureTracks.fold.end.y}`}
+          stroke="#22C55E"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          fill="none"
+          pathLength="100"
+          style={{ strokeDasharray: 100, strokeDashoffset: 100 - stepProgress }}
+        />
+        <circle cx={gestureTracks.fold.start.x} cy={gestureTracks.fold.start.y} r="1.2" fill="#60A5FA" />
+        <circle cx={gestureTracks.fold.end.x} cy={gestureTracks.fold.end.y} r="1.2" fill="#22C55E" />
+      </svg>
+      <div
+        className="absolute w-64 h-64 bg-red-600 shadow-2xl transition-all duration-300"
+        style={{
+          transform: `rotate(45deg) skewY(${-6 - stepProgress * 0.16}deg) scale(${1 - stepProgress * 0.0012})`,
+          opacity: 0.92
+        }}
+      >
+        <div className="absolute left-1/2 top-0 h-full border-l-4 border-dashed border-red-100 -translate-x-1/2"></div>
+        <div className="absolute left-1/2 top-0 h-full border-l-2 border-dashed border-yellow-300 -translate-x-1/2 opacity-60"></div>
+        <div className="absolute left-1/2 top-0 w-1 bg-blue-300/80 -translate-x-1/2 transition-all duration-200" style={{ height: `${stepProgress}%` }}></div>
+      </div>
+      <div className="absolute left-[calc(50%-8rem)] top-1/2 w-24 h-48 bg-red-700/70 blur-[1px] transition-all duration-300"
+        style={{ transform: `translateY(-50%) rotate(45deg) skewY(${-10 - stepProgress * 0.2}deg)` }}></div>
+      <div className="absolute right-8 bottom-8 w-28 bg-gray-950/70 rounded-lg border border-gray-700 p-2 text-xs">
+        <div className="flex justify-between text-gray-300 mb-1">
+          <span>折叠进度</span>
+          <span>{stepProgress}%</span>
+        </div>
+        <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-400 rounded-full transition-all" style={{ width: `${stepProgress}%` }}></div>
+        </div>
+      </div>
+      <div
+        className="absolute w-8 h-8 rounded-full bg-blue-500 border-4 border-white shadow-lg shadow-blue-500/40 animate-pulse"
+        style={{ left: `${fingerPoint.x}%`, top: `${fingerPoint.y}%`, transform: 'translate(-50%, -50%)' }}
+      ></div>
+    </>
+  );
+
+  const renderAdvancedCutScene = () => (
+    <>
+      {/* 剪裁步骤：黄色虚线为剪裁路径，虚拟剪刀跟随手指移动。 */}
+      <div className="relative w-64 h-72">
+        <div className="absolute inset-x-8 top-4 bottom-4 bg-red-600 shadow-2xl" style={{ clipPath: 'polygon(50% 0%, 88% 20%, 78% 58%, 100% 100%, 50% 82%, 0 100%, 22% 58%, 12% 20%)' }}></div>
+        <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+          <path d="M50 4 C70 18 70 42 58 58 L78 96 L50 82 L22 96 L42 58 C30 42 30 18 50 4Z" stroke="#FACC15" strokeWidth="2.5" strokeDasharray="5,4" fill="none" />
+          <path d="M50 4 C70 18 70 42 58 58 L78 96 L50 82 L22 96 L42 58 C30 42 30 18 50 4Z" stroke="#22C55E" strokeWidth="3" fill="none" strokeLinecap="round" style={{ strokeDasharray: 260, strokeDashoffset: 260 - stepProgress * 2.6 }} />
+          <circle cx="50" cy="4" r="3" fill="#38BDF8" />
+          <circle cx="42" cy="58" r="2.4" fill="#38BDF8" />
+          <circle cx="58" cy="58" r="2.4" fill="#38BDF8" />
+        </svg>
+      </div>
+      <div
+        className="absolute flex items-center justify-center w-12 h-12 rounded-full bg-yellow-400 text-gray-950 shadow-lg shadow-yellow-500/40 transition-transform"
+        style={{ left: `${fingerPoint.x}%`, top: `${fingerPoint.y}%`, transform: 'translate(-50%, -50%) rotate(-20deg)' }}
+      >
+        <Scissors size={24} />
+      </div>
+      {currentStepDone && (
+        <div className="absolute inset-12 rounded-full border-2 border-yellow-300/70 animate-ping"></div>
+      )}
+      <div className="absolute right-8 bottom-8 w-28 bg-gray-950/70 rounded-lg border border-gray-700 p-2 text-xs">
+        <div className="flex justify-between text-gray-300 mb-1">
+          <span>剪裁路径</span>
+          <span>{stepProgress}%</span>
+        </div>
+        <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+          <div className="h-full bg-green-400 rounded-full transition-all" style={{ width: `${stepProgress}%` }}></div>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderAdvancedAssembleScene = () => {
+    const assembleGap = currentStepDone ? 0 : Math.max(0, 46 - stepProgress * 0.46);
+
+    return (
+      <>
+        {/* 拼接步骤：完成态使用 SVG 剪纸娃娃造型，保留纸张层次和镂空纹样。 */}
+        <div className="absolute inset-0 flex items-center justify-center" style={{ perspective: '900px' }}>
+          <div
+            className="relative w-[420px] h-[320px] transition-transform duration-500"
+            style={{ transform: viewTransforms[modelView], transformStyle: 'preserve-3d' }}
+          >
+            <div className="absolute left-1/2 top-[74%] w-72 h-12 -translate-x-1/2 rounded-full bg-black/45 blur-md"></div>
+            <div className="absolute inset-0 rounded-full bg-red-500/10 blur-3xl opacity-70"></div>
+
+            <svg className="absolute inset-0 w-full h-full drop-shadow-2xl" viewBox="0 0 360 260" aria-label="拉手娃娃剪纸模型">
+              <defs>
+                <linearGradient id="paperRedLeft" x1="0" x2="1">
+                  <stop offset="0%" stopColor="#b91c1c" />
+                  <stop offset="100%" stopColor="#ef4444" />
+                </linearGradient>
+                <linearGradient id="paperRedRight" x1="0" x2="1">
+                  <stop offset="0%" stopColor="#ef4444" />
+                  <stop offset="100%" stopColor="#f87171" />
+                </linearGradient>
+                <filter id="paperShadow" x="-20%" y="-20%" width="140%" height="140%">
+                  <feDropShadow dx="0" dy="8" stdDeviation="5" floodColor="#000000" floodOpacity="0.32" />
+                </filter>
+              </defs>
+
+              <g transform={`translate(${-assembleGap} 0)`} filter="url(#paperShadow)">
+                <path d="M96 30 C86 30 78 36 73 45 C62 45 53 53 53 64 C53 70 56 76 61 79 C59 84 58 90 58 96 C58 109 65 121 76 128 C57 137 45 155 40 180 C52 177 64 174 76 171 L70 226 L91 226 L98 183 L111 226 L132 226 L121 171 C134 174 147 177 159 181 C154 155 140 137 120 128 C131 120 137 108 137 94 C137 88 136 83 134 78 C139 74 142 68 142 62 C142 51 133 43 122 43 C116 35 107 30 96 30 Z" fill="url(#paperRedLeft)" />
+                <path d="M130 134 C150 141 169 142 188 136 L191 151 C170 158 147 156 124 145 Z" fill="#dc2626" />
+                <circle cx="96" cy="92" r="31" fill="#111827" opacity="0.4" />
+                <circle cx="96" cy="92" r="24" fill="none" stroke="#fecaca" strokeWidth="4" opacity="0.84" />
+                <circle cx="86" cy="90" r="3" fill="#fecaca" opacity="0.85" />
+                <circle cx="106" cy="90" r="3" fill="#fecaca" opacity="0.85" />
+                <path d="M88 102 C92 106 100 106 104 102" fill="none" stroke="#fecaca" strokeWidth="3" strokeLinecap="round" opacity="0.9" />
+                <path d="M67 145 C83 137 109 137 125 145" fill="none" stroke="#fecaca" strokeWidth="5" strokeLinecap="round" opacity="0.78" />
+                <path d="M65 166 C85 158 110 158 130 166" fill="none" stroke="#fecaca" strokeWidth="4" strokeLinecap="round" opacity="0.58" />
+                <circle cx="70" cy="61" r="9" fill="#7f1d1d" opacity="0.5" />
+                <circle cx="124" cy="61" r="9" fill="#7f1d1d" opacity="0.5" />
+                <circle cx="96" cy="151" r="6" fill="#111827" opacity="0.22" />
+                <circle cx="96" cy="172" r="5" fill="#111827" opacity="0.18" />
+              </g>
+
+              <g transform={`translate(${assembleGap} 0) translate(360 0) scale(-1 1)`} filter="url(#paperShadow)">
+                <path d="M96 30 C86 30 78 36 73 45 C62 45 53 53 53 64 C53 70 56 76 61 79 C59 84 58 90 58 96 C58 109 65 121 76 128 C57 137 45 155 40 180 C52 177 64 174 76 171 L70 226 L91 226 L98 183 L111 226 L132 226 L121 171 C134 174 147 177 159 181 C154 155 140 137 120 128 C131 120 137 108 137 94 C137 88 136 83 134 78 C139 74 142 68 142 62 C142 51 133 43 122 43 C116 35 107 30 96 30 Z" fill="url(#paperRedRight)" />
+                <path d="M130 134 C150 141 169 142 188 136 L191 151 C170 158 147 156 124 145 Z" fill="#fb7185" />
+                <circle cx="96" cy="92" r="31" fill="#111827" opacity="0.36" />
+                <circle cx="96" cy="92" r="24" fill="none" stroke="#fee2e2" strokeWidth="4" opacity="0.88" />
+                <circle cx="86" cy="90" r="3" fill="#fee2e2" opacity="0.88" />
+                <circle cx="106" cy="90" r="3" fill="#fee2e2" opacity="0.88" />
+                <path d="M88 102 C92 106 100 106 104 102" fill="none" stroke="#fee2e2" strokeWidth="3" strokeLinecap="round" opacity="0.92" />
+                <path d="M67 145 C83 137 109 137 125 145" fill="none" stroke="#fee2e2" strokeWidth="5" strokeLinecap="round" opacity="0.78" />
+                <path d="M65 166 C85 158 110 158 130 166" fill="none" stroke="#fee2e2" strokeWidth="4" strokeLinecap="round" opacity="0.6" />
+                <circle cx="70" cy="61" r="9" fill="#7f1d1d" opacity="0.42" />
+                <circle cx="124" cy="61" r="9" fill="#7f1d1d" opacity="0.42" />
+                <circle cx="96" cy="151" r="6" fill="#111827" opacity="0.18" />
+                <circle cx="96" cy="172" r="5" fill="#111827" opacity="0.16" />
+              </g>
+
+              <path
+                d="M166 137 C174 132 186 132 194 137 L196 151 C187 158 173 158 164 151 Z"
+                fill="#fb7185"
+                opacity={Math.max(0.25, stepProgress / 100)}
+              />
+              <path d="M180 119 C174 130 174 143 180 154 C186 143 186 130 180 119 Z" fill="#111827" opacity="0.25" />
+            </svg>
+
+            {currentStepDone && (
+              <div className="absolute left-1/2 bottom-2 -translate-x-1/2 flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm text-gray-900 shadow-xl">
+                <CheckCircle size={18} className="text-green-600" />
+                <span>拉手娃娃已拼接完成</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!currentStepDone && (
+          <>
+            <div className="absolute left-8 bottom-8 w-32 bg-gray-950/70 rounded-lg border border-gray-700 p-2 text-xs">
+              <div className="flex justify-between text-gray-300 mb-1">
+                <span>对齐吸附</span>
+                <span>{stepProgress}%</span>
+              </div>
+              <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                <div className="h-full bg-yellow-300 rounded-full transition-all" style={{ width: `${stepProgress}%` }}></div>
+              </div>
+            </div>
+            <div
+              className="absolute w-8 h-8 rounded-full bg-blue-500 border-4 border-white shadow-lg shadow-blue-500/40"
+              style={{ left: `${fingerPoint.x}%`, top: `${fingerPoint.y}%`, transform: 'translate(-50%, -50%)' }}
+            ></div>
+          </>
+        )}
+      </>
+    );
+  };
+
+  const renderAdvancedARScene = () => (
+    <>
+      {currentAdvancedStep.id === 'fold' && renderAdvancedFoldScene()}
+      {currentAdvancedStep.id === 'cut' && renderAdvancedCutScene()}
+      {currentAdvancedStep.id === 'assemble' && renderAdvancedAssembleScene()}
+
+      {currentAdvancedStep.id !== 'fold' && !(currentAdvancedStep.id === 'assemble' && currentStepDone) && (
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path
+            d={`M${gestureTracks[currentAdvancedStep.id].start.x} ${gestureTracks[currentAdvancedStep.id].start.y} L${gestureTracks[currentAdvancedStep.id].end.x} ${gestureTracks[currentAdvancedStep.id].end.y}`}
+            stroke="#60A5FA"
+            strokeWidth="0.8"
+            strokeDasharray="3 2"
+            fill="none"
+          />
+          <path
+            d={`M${gestureTracks[currentAdvancedStep.id].start.x} ${gestureTracks[currentAdvancedStep.id].start.y} L${gestureTracks[currentAdvancedStep.id].end.x} ${gestureTracks[currentAdvancedStep.id].end.y}`}
+            stroke="#22C55E"
+            strokeWidth="1.2"
+            strokeLinecap="round"
+            fill="none"
+            pathLength="100"
+            style={{ strokeDasharray: 100, strokeDashoffset: 100 - stepProgress }}
+          />
+        </svg>
+      )}
+
+      <div className="absolute top-6 left-6 flex flex-wrap gap-2">
+        <span className="bg-red-500/20 text-red-100 border border-red-400/40 px-2.5 py-1 rounded-full text-xs">红色虚线：折叠线</span>
+        <span className="bg-yellow-500/20 text-yellow-100 border border-yellow-300/40 px-2.5 py-1 rounded-full text-xs">黄色虚线：剪裁线</span>
+        <span className="bg-blue-500/20 text-blue-100 border border-blue-300/40 px-2.5 py-1 rounded-full text-xs">蓝色点：参考点</span>
+      </div>
+
+      <div className="absolute top-10 right-10 bg-white/90 text-black text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1">
+        <div className={`w-2 h-2 rounded-full ${currentStepDone ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`}></div>
+        {currentAdvancedStep.id === 'fold' ? `折叠角度：${currentAdvancedStep.angle}°` : `${currentAdvancedStep.label}进度：${stepProgress}%`}
+      </div>
+
+      {!currentStepDone && (
+        <div className="absolute bottom-10 left-10 bg-black/70 backdrop-blur text-white text-xs px-3 py-2 rounded-lg max-w-[220px] border-l-2 border-yellow-400">
+          {currentAdvancedStep.help}
+        </div>
+      )}
+
+      {currentStepDone && (
+        <div className="absolute inset-16 border border-yellow-300/40 rounded-full animate-ping pointer-events-none"></div>
+      )}
+    </>
+  );
 
   return (
     <div className="min-h-screen bg-gray-900 text-white animate-fade-in flex flex-col relative">
@@ -1176,10 +2332,15 @@ const ARPage = ({ onExit }) => {
         </div>
       )}
 
+      {toast && (
+        <div className="fixed top-24 left-1/2 -translate-x-1/2 z-[80] bg-white text-gray-900 px-4 py-2 rounded-full shadow-2xl text-sm animate-fade-in">
+          {toast}
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gray-800 p-4 shadow-md flex justify-between items-center z-20">
         <div className="flex items-center gap-4">
-          {/* New Exit Button */}
           <button
             onClick={onExit}
             className="flex items-center gap-1 text-gray-400 hover:text-white hover:bg-gray-700 px-3 py-1.5 rounded-lg transition-all"
@@ -1195,37 +2356,54 @@ const ARPage = ({ onExit }) => {
             <span className="font-bold">AR 剪纸传习馆</span>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-xs bg-red-600 px-2 py-1 rounded animate-pulse">LIVE 演示版</div>
-        </div>
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row h-[calc(100vh-64px)]">
         {/* Sidebar Controls */}
-        <div className="w-full md:w-80 bg-gray-800/50 p-6 flex flex-col gap-6 border-r border-gray-700 backdrop-blur-md">
+        <div className="w-full md:w-80 bg-gray-800/50 p-6 flex flex-col gap-6 border-r border-gray-700 backdrop-blur-md overflow-y-auto">
           <div>
             <h3 className="text-lg font-bold mb-4 text-red-400">选择教程</h3>
             <div className="space-y-3">
-              <div className="p-3 bg-red-900/40 border border-red-500/50 rounded-lg cursor-pointer flex flex-col gap-2 group active:bg-red-900/60 transition-all">
+              <div
+                onClick={() => {
+                  setActiveCourse('basic');
+                  setStepProgress(0);
+                }}
+                className={`p-3 rounded-lg cursor-pointer flex flex-col gap-2 group active:bg-red-900/60 transition-all ${!isAdvancedCourse ? 'bg-red-900/40 border border-red-500/50' : 'bg-gray-700/50 hover:bg-gray-700 border border-transparent'}`}
+              >
                 <div className="flex justify-between items-center w-full">
                   <span>基础：五折团花</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-red-300">进行中</span>
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                  </div>
+                  {!isAdvancedCourse && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-300">进行中</span>
+                      <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+                    </div>
+                  )}
                 </div>
-                {/* 增加实操入口 */}
                 <button className="w-full mt-1 bg-red-600 hover:bg-red-500 text-xs py-1.5 rounded text-white font-medium transition flex items-center justify-center gap-1">
                   <Scissors size={12} /> 开始实操
                 </button>
               </div>
-              {['进阶：拉手娃娃', '大师：十二生肖', '创意：立体春字'].map((item, idx) => (
+
+              <div
+                onClick={selectAdvancedCourse}
+                className={`p-3 rounded-lg cursor-pointer transition flex flex-col gap-2 group ${isAdvancedCourse ? 'bg-red-900/40 border border-yellow-300/60 shadow-lg shadow-yellow-500/10' : 'bg-gray-700/50 hover:bg-gray-700 border border-transparent'}`}
+              >
+                <div className="flex justify-between items-center w-full">
+                  <span>进阶课程—拉手娃娃</span>
+                  <ChevronRight size={16} className={isAdvancedCourse ? 'text-yellow-300' : 'text-gray-500 group-hover:text-white transition-colors'} />
+                </div>
+                <button className="w-full mt-1 bg-gray-600 hover:bg-red-600 text-xs py-1.5 rounded text-white font-medium transition flex items-center justify-center gap-1">
+                  <Scissors size={12} /> 进入练习
+                </button>
+              </div>
+
+              {['大师：十二生肖', '创意：立体春字'].map((item, idx) => (
                 <div key={idx} className="p-3 bg-gray-700/50 hover:bg-gray-700 rounded-lg cursor-pointer transition flex flex-col gap-2 group">
                   <div className="flex justify-between items-center w-full">
                     <span>{item}</span>
                     <ChevronRight size={16} className="text-gray-500 group-hover:text-white transition-colors" />
                   </div>
-                  {/* 增加实操入口 (隐藏，hover显示) */}
                   <button className="w-full mt-1 bg-gray-600 hover:bg-red-600 text-xs py-1.5 rounded text-white font-medium transition hidden group-hover:flex items-center justify-center gap-1">
                     <Scissors size={12} /> 进入练习
                   </button>
@@ -1241,15 +2419,55 @@ const ARPage = ({ onExit }) => {
                 <span className="w-6 h-6 border-2 border-dashed border-white rounded-md block"></span>
                 虚实叠影
               </button>
-              <button className="p-3 bg-gray-700 rounded-lg hover:bg-gray-600 flex flex-col items-center gap-2 text-sm transition-colors border border-transparent hover:border-gray-500 active:bg-gray-500">
+              <button onClick={() => isAdvancedCourse && completeCurrentStep()} className="p-3 bg-gray-700 rounded-lg hover:bg-gray-600 flex flex-col items-center gap-2 text-sm transition-colors border border-transparent hover:border-gray-500 active:bg-gray-500">
                 <Play size={20} />
                 步骤演示
               </button>
             </div>
           </div>
 
+          {isAdvancedCourse && (
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                {advancedSteps.map((step, index) => (
+                  <button
+                    key={step.id}
+                    onClick={() => jumpToAdvancedStep(index)}
+                    className={`flex-1 h-2 rounded-full transition ${index === advancedStep ? 'bg-yellow-300' : completedSteps.includes(step.id) ? 'bg-green-500' : 'bg-gray-600'}`}
+                    title={step.title}
+                  ></button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'front', label: '正面' },
+                  { id: 'left', label: '左侧' },
+                  { id: 'right', label: '右侧' }
+                ].map((view) => (
+                  <button
+                    key={view.id}
+                    onClick={() => setModelView(view.id)}
+                    className={`rounded-lg py-2 text-xs transition ${modelView === view.id ? 'bg-yellow-300 text-gray-900' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                  >
+                    {view.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <button onClick={goPrevStep} className="bg-gray-700 hover:bg-gray-600 rounded-lg py-2 text-xs flex items-center justify-center gap-1">
+                  <ChevronLeft size={14} /> 回退
+                </button>
+                <button onClick={repeatCurrentStep} className="bg-gray-700 hover:bg-gray-600 rounded-lg py-2 text-xs">
+                  重复
+                </button>
+                <button onClick={goNextStep} className="bg-red-600 hover:bg-red-500 rounded-lg py-2 text-xs flex items-center justify-center gap-1">
+                  {currentStepDone ? '下一步' : '完成'} <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="mt-auto space-y-4">
-            {/* FAQ 入口 */}
             <button
               onClick={() => setShowFaq(true)}
               className="w-full p-4 bg-gray-700/50 hover:bg-gray-700 border border-gray-600 border-dashed rounded-lg text-sm text-gray-300 flex items-center justify-center gap-2 transition"
@@ -1260,10 +2478,14 @@ const ARPage = ({ onExit }) => {
 
             <div className="bg-gray-700/30 p-4 rounded-lg text-sm text-gray-400 border border-gray-700">
               <div className="flex justify-between items-center mb-2">
-                <p className="font-bold text-white">当前步骤 (2/5)</p>
-                <span className="text-xs bg-gray-600 px-1.5 py-0.5 rounded">折叠</span>
+                <p className="font-bold text-white">
+                  当前步骤 {isAdvancedCourse ? `(${advancedStep + 1}/${advancedSteps.length})` : `(${basicStep + 1}/${basicSteps.length})`}
+                </p>
+                <span className="text-xs bg-gray-600 px-1.5 py-0.5 rounded">
+                  {isAdvancedCourse ? currentAdvancedStep.label : basicSteps[basicStep].label}
+                </span>
               </div>
-              <p>沿着红色虚线折叠纸张，注意边角对齐。折叠后请压实折痕。</p>
+              <p>{isAdvancedCourse ? currentAdvancedStep.help : basicSteps[basicStep].help}</p>
             </div>
           </div>
         </div>
@@ -1275,40 +2497,32 @@ const ARPage = ({ onExit }) => {
           <img src="/api/placeholder/1200/800" alt="Camera Feed" className="absolute inset-0 w-full h-full object-cover opacity-20" />
 
           {/* AR Overlay Elements */}
-          <div className="relative w-[300px] h-[300px] md:w-[500px] md:h-[500px] border-2 border-red-500/30 rounded-xl flex items-center justify-center">
-            {/* Simulated Paper */}
-            <div className="w-48 h-48 bg-red-600 opacity-90 transform rotate-45 shadow-2xl relative transition-transform duration-1000 hover:rotate-90">
-              <div className="absolute inset-0 border-2 border-dashed border-yellow-300 animate-pulse"></div>
-              {/* AR Guidance Line */}
-              <svg className="absolute top-0 left-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
-                <path d="M0,0 L100,100" stroke="yellow" strokeWidth="2" strokeDasharray="5,5" className="animate-dash" />
-              </svg>
-            </div>
-
-            {/* AR Floating Labels */}
-            <div className="absolute top-10 right-10 bg-white/90 text-black text-xs px-3 py-1 rounded-full shadow-lg flex items-center gap-1 transform translate-x-4 -translate-y-4 animate-bounce-slow">
-              <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-              折叠角度：45°
-            </div>
-
-            <div className="absolute bottom-10 left-10 bg-black/60 backdrop-blur text-white text-xs px-3 py-2 rounded-lg max-w-[150px] border-l-2 border-yellow-400">
-              💡 提示：按住虚线位置，轻轻压实折痕
-            </div>
+          <div
+            className={`relative w-[300px] h-[300px] md:w-[560px] md:h-[560px] border-2 border-red-500/30 rounded-xl flex items-center justify-center touch-none ${isAdvancedCourse ? isDragging ? 'cursor-grabbing' : 'cursor-grab' : basicDragX === null ? 'cursor-grab' : 'cursor-grabbing'}`}
+            onPointerMove={isAdvancedCourse ? handlePointerMove : handleBasicPointerMove}
+            onPointerDown={isAdvancedCourse ? handleARAction : handleBasicARAction}
+            onPointerUp={handlePointerEnd}
+            onPointerLeave={handlePointerEnd}
+          >
+            {isAdvancedCourse ? renderAdvancedARScene() : renderBasicARScene()}
           </div>
 
           {/* Camera UI Overlay */}
           <div className="absolute bottom-8 flex gap-8 items-center">
             <div className="text-center">
-              <button className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-white hover:bg-gray-700 transition active:scale-90">
-                <Clock size={20} />
+              <button onClick={() => handleShareOrSave('save')} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-white hover:bg-gray-700 transition active:scale-90">
+                <Camera size={20} />
               </button>
-              <span className="text-[10px] text-gray-400 mt-1 block">历史</span>
+              <span className="text-[10px] text-gray-400 mt-1 block">保存</span>
             </div>
-            <button className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent hover:bg-white/10 transition transform active:scale-95">
-              <div className="w-16 h-16 bg-white rounded-full"></div>
+            <button
+              onClick={() => isAdvancedCourse ? completeCurrentStep() : setBasicStep((prev) => (prev + 1) % basicSteps.length)}
+              className="w-20 h-20 rounded-full border-4 border-white flex items-center justify-center bg-transparent hover:bg-white/10 transition transform active:scale-95"
+            >
+              <div className={`w-16 h-16 rounded-full ${isAdvancedCourse && currentStepDone ? 'bg-green-400' : 'bg-white'}`}></div>
             </button>
             <div className="text-center">
-              <button className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-white hover:bg-gray-700 transition active:scale-90">
+              <button onClick={() => handleShareOrSave('share')} className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center text-white hover:bg-gray-700 transition active:scale-90">
                 <Share2 size={20} />
               </button>
               <span className="text-[10px] text-gray-400 mt-1 block">分享</span>
